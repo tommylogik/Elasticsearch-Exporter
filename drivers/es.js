@@ -76,6 +76,7 @@ var request = new function() {
             port: port,
             path: path,
             auth: auth,
+            headers,
             method: method
         };
         if (httpProxy) {
@@ -226,7 +227,7 @@ exports.getSourceStats = function(opts, callback) {
     clusterStateReq.on('error', errorHandler);
     clusterStateReq.end();
 
-    var statusReq = request.source.get(opts, '/_status', function (res) {
+    var statusReq = request.source.get(opts, '/_stats', function (res) {
         var data = '';
         var buffers = [];
         var nread = 0;
@@ -240,7 +241,7 @@ exports.getSourceStats = function(opts, callback) {
             var indices = {};
             var total = 0;
             for (var index in data.indices) {
-                indices[index] = data.indices[index].docs.num_docs;
+                indices[index] = data.indices[index].total.docs.count;
                 total += indices[index];
             }
             opts.sourceStats.docs = {
@@ -378,7 +379,7 @@ function storeTypeMeta(opts, metadata, callback) {
         console.log('Creating type mapping in target ElasticSearch instance');
     }
 
-    var createIndexReq = request.target.put(opts, '/' + opts.targetIndex, { "Content-Length": 0 }, function() {
+    var createIndexReq = request.target.put(opts, '/' + opts.targetIndex, { "Content-Length": 0, "Content-Type": "application/json" }, function() {
         var path,
             buffer = new Buffer(JSON.stringify(metadata), 'utf8');
 
@@ -388,7 +389,8 @@ function storeTypeMeta(opts, metadata, callback) {
             path = '/' + opts.targetIndex + '/_mapping/' + opts.targetType + '/';
         }
         var typeMapOptions = request.target.put(opts, path, {
-            "Content-Length": buffer.length
+            "Content-Length": buffer.length,
+            "Content-Type": "application/json"
         });
         var protocol =  opts.targetUseSSL ? https : http;
         var typeMapReq = protocol.request(typeMapOptions, function(err) {
@@ -415,7 +417,7 @@ function storeIndexMeta(opts, metadata, callback) {
     }
 
     var buffer = new Buffer(JSON.stringify(metadata), 'utf8');
-    var createIndexReq = request.target.put(opts, '/' + opts.targetIndex, { "Content-Length": buffer.length }, function (err) {
+    var createIndexReq = request.target.put(opts, '/' + opts.targetIndex, { "Content-Length": buffer.length, "Content-Type": "application/json" }, function (err) {
         errorHandler(err);
         callback();
     });
@@ -447,7 +449,7 @@ function storeAllMeta(opts, metadata, callback) {
     for (var index in metadata) {
         numIndices++;
         var buffer = new Buffer(JSON.stringify(metadata[index]), 'utf8');
-        var createIndexReq = request.target.put(opts, '/' + index, { "Content-Length": buffer.length }, done);
+        var createIndexReq = request.target.put(opts, '/' + index, { "Content-Length": buffer.length, "Content-Type": "application/json" }, done);
         createIndexReq.on('error', errorHandler);
         createIndexReq.end(buffer);
     }
@@ -474,7 +476,7 @@ exports.getData = function(opts, callback, retries) {
     }
 
     var query = {
-        fields : [
+      stored_fields : [
             '_source', '_timestamp', '_version', '_routing', '_percolate', '_parent', '_ttl'
         ],
         size : opts.sourceSize,
@@ -482,7 +484,7 @@ exports.getData = function(opts, callback, retries) {
     };
     if (opts.sourceIndex) {
         query = {
-            fields : [
+          stored_fields : [
                 '_source', '_timestamp', '_version', '_routing', '_percolate', '_parent', '_ttl'
             ],
             size : opts.sourceSize,
@@ -499,7 +501,7 @@ exports.getData = function(opts, callback, retries) {
     }
     if (opts.sourceType) {
         query = {
-            fields : [
+            stored_fields : [
                 '_source', '_timestamp', '_version', '_routing', '_percolate', '_parent', '_ttl'
             ],
             size : opts.sourceSize,
@@ -555,7 +557,7 @@ exports.getData = function(opts, callback, retries) {
         scrollReq.end(scrollBuffer);
     } else {
         var firstBuffer = new Buffer(JSON.stringify(query), 'utf8');
-        var firstReq = request.source.post(opts, '/_search?search_type=scan&scroll=60m', { "Content-Length": firstBuffer.length }, handleResult);
+        var firstReq = request.source.post(opts, '/_search?search_type=query_then_fetch&scroll=60m', { "Content-Length": firstBuffer.length, "Content-Type": "application/json" }, handleResult);
         firstReq.on('error', function (err) {
             errorHandler(err);
             setTimeout(function () {
@@ -587,7 +589,7 @@ exports.storeData = function(opts, data, callback, retries) {
     }
 
     var buffer = new Buffer(data, 'utf8');
-    var putReq = request.target.post(opts, '/_bulk', { "Content-Length": buffer.length }, function(res) {
+    var putReq = request.target.post(opts, '/_bulk', { "Content-Length": buffer.length, "Content-Type": "application/json" }, function(res) {
         //Data must be fetched, otherwise socket won't be set to free
         var str = '';
         res.on('data', function (chunk) { str += chunk; });
