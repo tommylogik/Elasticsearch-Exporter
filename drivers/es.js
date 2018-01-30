@@ -617,7 +617,13 @@ exports.storeData = function (opts, data, callback, retries) {
       str += chunk;
     });
     res.on('end', function () {
-      var esRes = parseJson(str);
+      try {
+        var esRes = parseJson(str);
+      }
+      catch (e) {
+        console.log(e);
+      }
+
       if (esRes.errors) {
         for (var i in esRes.items) {
           var item = esRes.items[i];
